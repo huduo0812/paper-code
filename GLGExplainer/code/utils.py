@@ -50,8 +50,9 @@ class LocalExplanationsDataset(InMemoryDataset):
             
             t = from_networkx(nx.from_numpy_matrix(adj))
             data = Data(x=features, 
-                        edge_index=t.edge_index, 
-                        edge_attr=torch.tensor(t.weight).reshape(-1, 1),
+                        edge_index=t.edge_index,
+                        edge_attr = t.weight.clone().detach().requires_grad_(True).reshape(-1, 1),
+                        # edge_attr=torch.tensor(t.weight).reshape(-1, 1),
                         num_nodes=adj.shape[0],
                         y=torch.tensor(int(y[i]), dtype=torch.long) if y is not None else None, # the type of local explanation
                         task_y=torch.tensor(int(task_y[belonging[i]]), dtype=torch.long) if y is not None else None, # the class of the original input graph
@@ -173,6 +174,39 @@ def prototype_assignement(assign_func, le_embeddings, prototype_vectors, temp):
         index = y_soft.max(-1, keepdim=True)[1]
         y_hard = torch.zeros_like(y_soft).scatter_(-1, index, 1.0)
         le_assignments = y_hard - y_soft.detach() + y_soft
+    # TODO:使用动态原型数量 分配时自适应
+    elif assign_func == "dynamic":
+        # 用新的embedding去更新原型
+        for le_embedding in le_embeddings:
+            if prototype_vectors.shape[0] == 0:
+                prototype_vectors = torch.cat([prototype_vectors, le_embedding], dim=0).unsqueeze(0)
+            else:
+                cos_sim = torch.nn.functional.cosine_similarity(prototype_vectors, le_embedding, dim=-1)
+                wp, p = torch.max(cos_sim, dim=0)
+                if wp >= 0.5:
+                    if prototype_vectors.shape[0] <= 3:
+                        yita = 0.4
+                        prototype_vectors[p] = yita * prototype_vectors[p] + (1 - yita) * le_embedding
+                    else:
+                        cos_sim = torch.cat((cos_sim[:p], cos_sim[p + 1:]))
+                        # TODO: 这里q找错了，应该找离p这个原型最近的原型，记得修改一下
+                        wq, q = torch.max(cos_sim, dim=0)
+                        prototype_vectors[p] = ((wp/(wp + wq)) * prototype_vectors[p] +
+                                                (wq/(wp + wq)) * le_embedding.reshape(prototype_vectors.shape[1]))
+                else:
+                    prototype_vectors = torch.cat([prototype_vectors, le_embedding], dim=0)
+
+        # 更新完以后和以前一样算原型分配
+        dist = torch.cdist(le_embeddings, prototype_vectors, p=2) ** 2
+        sim = torch.log((dist + 1) / (dist + 1e-6))
+        y_soft = F.softmax(sim / temp, dim=-1)
+
+        # reparametrization trick from Gumbel Softmax
+        index = y_soft.max(-1, keepdim=True)[1]
+        y_hard = torch.zeros_like(y_soft).scatter_(-1, index, 1.0)
+        le_assignments = y_hard - y_soft.detach() + y_soft
+        print(prototype_vectors, prototype_vectors.shape)
+
     return le_assignments
 
 def entropy_loss(logits, return_raw=False):

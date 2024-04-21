@@ -46,11 +46,14 @@ def elbow_method(weights, index_stopped=None, min_num_include=7, backup=None):
     sorted_weights = sorted(weights, reverse=True)
     sorted_weights = np.convolve(sorted_weights, np.ones(min_num_include), 'valid') / min_num_include
 
+    # 这是用来存储肘点位置的变量。如果提供了 backup 参数，stop 将被设置为 backup 的值；否则，它将被设置为平滑后权重的平均值。
     stop = np.mean(sorted_weights) if backup is None else backup # backup threshold
     for i in range(len(sorted_weights)-2):
+        # 检查当前索引 i 是否小于 min_num_include。如果是，跳过当前迭代，继续下一次迭代。这是为了确保我们有足够的权重值来进行比较，避免在列表的开始部分就做出决定。
         if i < min_num_include:
             continue
         if sorted_weights[i-1] - sorted_weights[i] > 0.0:
+            # 这里是文中提到的选择与前一个权重至少相差 40% 的第一个权重作为阈值
             if sorted_weights[i-1] - sorted_weights[i] >= 40 * (sorted_weights[0] - sorted_weights[i-2]) / 100 + (sorted_weights[0] - sorted_weights[i-2]):
                 stop = sorted_weights[i]
                 if index_stopped is not None:
@@ -79,12 +82,14 @@ def assign_class(pattern_matched):
 def label_explanation(G, house, grid, wheel, return_raw=False):
     pattern_matched = []
     for i , pattern in enumerate([house, grid, wheel]):
+        # 创建一个图匹配器 GM，它用于比较输入图 G 和模式图 pattern 是否存在同构子图。同构子图意味着两个图在结构上是相同的，即使节点的标签可能不同。
         GM = isomorphism.GraphMatcher(G, pattern)
         if GM.subgraph_is_isomorphic():
             pattern_matched.append(i)
     if return_raw:
         return pattern_matched
     else:
+        # 指定标签，类别在 bamultishapes_classes_names 中
         return assign_class(pattern_matched)
 
 
@@ -148,6 +153,7 @@ def read_bamultishapes(explainer="PGExplainer", dataset="BAMultiShapes", model="
         #path_emb = base_emb + split + "/"
         for c in ["1","0"]:
             for pp in os.listdir(path + c + "/"):
+                # pp:1_999.pkl
                 graph_id = int(pp.split(".")[0])
                 adj = np.load(path + c + "/" + pp, allow_pickle=True)
                 g = nx.from_numpy_array(adj)                 
@@ -155,7 +161,9 @@ def read_bamultishapes(explainer="PGExplainer", dataset="BAMultiShapes", model="
                 # ori_predictions.append(prediction)                
                 # emb = np.load(path_emb + c + "/" + str(graph_id) + ".pkl", allow_pickle=True)
                 # gnn_embeddings.append(emb)
-                
+
+                # 肘法选择阈值
+                # np.triu(adj).flatten() 提前adj的上三角部分并展平
                 cut = elbow_method(np.triu(adj).flatten(), index_stopped, min_num_include) if manual_cut is None else manual_cut
                 masked = copy.deepcopy(adj)
                 masked[masked <= cut] = 0
@@ -168,13 +176,16 @@ def read_bamultishapes(explainer="PGExplainer", dataset="BAMultiShapes", model="
                 #if gnn_pred != int(c):
                 #    summary_predictions["wrong"].append(assign_class(graph_labels))
                 #    continue
+                # 统计label
                 summary_predictions["correct"].append(assign_class(graph_labels))
                 total_cc_labels.append([])
                 cc_labels = []
+                # 遍历图 G 的所有连通分量
                 for cc in nx.connected_components(G):
+                    # 检查当前连通分量 cc 是否包含多于两个节点。如果只有两个节点，它可能是一条线（edge），这通常不是我们感兴趣的模式。
                     if len(cc) > 2:
                         G1 = G.subgraph(cc)
-                        if not nx.diameter(G1) == len(G1.edges()): #if is not a line  
+                        if not nx.diameter(G1) == len(G1.edges()): #if is not a line  计算子图 G1 的直径（diameter），即任意两个节点之间的最长路径长度
                             cc_lbl = label_explanation(G1, house, grid, wheel, return_raw=True)
                             if remove_mix and assign_class(cc_lbl) >= 4:
                                 num_multi_shapes_removed += 1

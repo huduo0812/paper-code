@@ -2,8 +2,8 @@
     "len_lr": 0.0005,
     "proto_lr": 0.001,
     "le_emb_lr": 0.001,
-    "coeff_divloss": 0.000,
-    "coeff_pdist": 0.0,
+    "coeff_divloss": 0.01,
+    "coeff_pdist": 0.01,
     "coeff_gae": 0.0,
     "coeff_r1": 0.09,
     "coeff_r2": 0.00099,
@@ -26,7 +26,7 @@
     "LEN_temperature": 1,
     "remove_attention": true,
     "log_images": false,
-    "log_models": false,
+    "log_models": true,
     "log_wandb": false,
     "num_epochs": 2000
 }
